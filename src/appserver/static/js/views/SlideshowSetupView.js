@@ -965,7 +965,7 @@ define([
         	try{
 	        	// Remove existing bindings if necessary (to prevent memory leaks)
 	        	if(this.slideshow_window && this.slideshow_window.document){
-	        		$(this.slideshow_window.document).unbind();
+	        		$(this.slideshow_window.document).off();
 	        		console.info("Unbound the overlay control handlers for the show frame");
 	        	}
         	}
@@ -1175,7 +1175,7 @@ define([
         	
         	// Unbind the overlay controls
         	if(this.slideshow_window && this.slideshow_window.document){
-        		$(this.slideshow_window.document).unbind();
+        		$(this.slideshow_window.document).off();
         	}
         	
         	// Purge the frame itself
