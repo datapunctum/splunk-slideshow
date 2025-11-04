@@ -130,6 +130,7 @@ define([
         	
         	// These variables are used for running the show and will be set when the show begins
         	this.slideshow_window = null;
+        	this.slideshow_preload_window = null; // Preload window for next slide
         	this.slideshow_view_offset = null;
         	this.slideshow_views = null;
         	this.slideshow_delay = null;
@@ -140,9 +141,11 @@ define([
         	this.slideshow_is_running = false;
 			this.slideshow_invert_colors = false;
 			this.slideshow_hide_progressbar = false;
+			this.slideshow_current_frame = 'showframe1'; // Track which frame is active
 
         	this.hide_controls_last_mouse_move = null;
         	this.ready_state_check_interval = null;
+        	this.preload_ready_state_check_interval = null;
         	
         	this.saved_shows_supported = false;
         	this.custom_urls = [];
@@ -961,7 +964,7 @@ define([
          * Wire up the slide frame controls
          */
         wireUpSlideFrameControls: function(){
-        	
+
         	try{
 	        	// Remove existing bindings if necessary (to prevent memory leaks)
 	        	if(this.slideshow_window && this.slideshow_window.document){
@@ -970,12 +973,14 @@ define([
 	        	}
         	}
         	catch(DOMException){
-        		// Ignore this exception. The window was likely displaying a page for another domain. 
+        		// Ignore this exception. The window was likely displaying a page for another domain.
         	}
-        	
-			// Store a reference to the window
-			var showframe = document.getElementById("showframe");
-			this.slideshow_window = showframe.contentWindow;
+
+			// Store a reference to the current active window
+			var showframe = document.getElementById(this.slideshow_current_frame);
+			if(showframe){
+				this.slideshow_window = showframe.contentWindow;
+			}
         	
         	// Wire up the handler to show the stop show option
         	setTimeout(function(){
@@ -1050,22 +1055,31 @@ define([
          * Show the frame that will contain the slideshow
          */
         showSlideshowFrame: function(){
-        	
-        	// Remove the existing frame
+
+        	// Remove the existing frames
         	this.deleteShowFrame();
-        	
-			// Make the frame if necessary
-			if($('#showframe').length === 0){
-				$('<iframe id="showframe">').appendTo('body');
-				
-				$(window).resize(function() {
-					$('#showframe').css("height", $(window).height());
-				});
+
+			// Create dual iframes for instant switching
+			if($('#showframe1').length === 0){
+				$('<iframe id="showframe1" class="slideshow-frame">').appendTo('body');
 			}
-			
-			$('#showframe').css("height", $(window).height());
-			$('#showframe').show();
-        	
+			if($('#showframe2').length === 0){
+				$('<iframe id="showframe2" class="slideshow-frame">').appendTo('body');
+			}
+
+			// Set up resize handler
+			$(window).resize(function() {
+				$('.slideshow-frame').css("height", $(window).height());
+			});
+
+			// Configure both frames
+			$('.slideshow-frame').css("height", $(window).height());
+			$('.slideshow-frame').css("transition", "opacity 0.15s ease-in-out");
+
+			// Show the first frame, hide the second
+			$('#showframe1').css("opacity", "1").css("z-index", "10").show();
+			$('#showframe2').css("opacity", "0").css("z-index", "5").show();
+
 			// Wire up the handler to hide the overlay controls
 			this.wireUpSlideFrameControls();
         },
@@ -1074,25 +1088,27 @@ define([
          * Show the loading frame
          */
         showLoadingFrame: function(){
-        	
+
 			// Make the loading frame if necessary
 			if($('#loadingframe').length === 0){
 				$('<iframe id="loadingframe">').appendTo('body');
 				$('#loadingframe').appendTo('body');
-				
+
 				var loadingframe = document.getElementById("loadingframe");
 				var loadingFrameDocument = loadingframe.contentDocument.document;
 			}
-			
-			// Set the background color as appropriate
+
+			// Set the background color as appropriate - using softer, more neutral colors
 			if(this.slideshow_invert_colors){
-				$('#loadingframe').contents().find('body').css("margin", '0px').css("background-color", '#080808');
+				$('#loadingframe').contents().find('body').css("margin", '0px').css("background-color", '#1a1a1a');
 			}
 			else{
-				$('#loadingframe').contents().find('body').css("margin", '0px').css("background-color", '#EAEAEA');
+				$('#loadingframe').contents().find('body').css("margin", '0px').css("background-color", '#2b3e50');
 			}
-			
+
 			$('#loadingframe').css("height", $(window).height());
+			$('#loadingframe').css("transition", "opacity 0.3s ease-in-out");
+			$('#loadingframe').css("opacity", "1");
 			$('#loadingframe').show();
         },
         
@@ -1100,7 +1116,11 @@ define([
          * Hide the loading frame
          */
         hideLoadingFrame: function(){
-        	$('#loadingframe').hide();
+        	// Fade out smoothly before hiding
+        	$('#loadingframe').css("opacity", "0");
+        	setTimeout(function() {
+        		$('#loadingframe').hide();
+        	}, 300); // Wait for fade transition to complete
         },
         
         /**
@@ -1172,20 +1192,163 @@ define([
          * 	  2) https://github.com/LukeMurphey/splunk-slideshow/issues/1
          */
         deleteShowFrame: function(){
-        	
+
         	// Unbind the overlay controls
         	if(this.slideshow_window && this.slideshow_window.document){
         		$(this.slideshow_window.document).off();
         	}
-        	
-        	// Purge the frame itself
+        	if(this.slideshow_preload_window && this.slideshow_preload_window.document){
+        		$(this.slideshow_preload_window.document).off();
+        	}
+
+        	// Purge both frames
+        	if($('#showframe1').length > 0){
+        		$('#showframe1').remove();
+        	}
+        	if($('#showframe2').length > 0){
+        		$('#showframe2').remove();
+        	}
+        	// Legacy cleanup
         	if($('#showframe').length > 0){
         		$('#showframe').remove();
         	}
-        	
+
         	this.slideshow_window = null;
+        	this.slideshow_preload_window = null;
         },
-        
+
+        /**
+         * Get the next view index without changing the current offset
+         */
+        getNextViewIndex: function(forward){
+        	if(typeof forward === 'undefined'){
+        		forward = true;
+        	}
+
+        	var next_offset = this.slideshow_view_offset;
+
+        	if(forward){
+        		next_offset++;
+        	}
+        	else{
+        		next_offset--;
+        	}
+
+        	// Wrap around
+        	if(next_offset >= this.slideshow_views.length){
+        		next_offset = 0;
+        	}
+        	else if(next_offset < 0){
+        		next_offset = (this.slideshow_views.length - 1);
+        	}
+
+        	return next_offset;
+        },
+
+        /**
+         * Preload the next view in the background for instant transition
+         */
+        preloadNextView: function(forward){
+        	if(typeof forward === 'undefined'){
+        		forward = true;
+        	}
+
+        	var next_index = this.getNextViewIndex(forward);
+        	var next_view = this.slideshow_views[next_index];
+
+        	// Determine which frame to preload into (the one not currently showing)
+        	var preload_frame_id = (this.slideshow_current_frame === 'showframe1') ? 'showframe2' : 'showframe1';
+        	var preload_frame = document.getElementById(preload_frame_id);
+
+        	if(!preload_frame){
+        		console.warn("Preload frame not found: " + preload_frame_id);
+        		return;
+        	}
+
+        	console.info("Preloading next view in " + preload_frame_id);
+
+        	// Load the next view into the preload frame
+        	this.slideshow_preload_window = preload_frame.contentWindow;
+        	this.slideshow_preload_window.location = this.makeViewURL(next_view, this.slideshow_hide_chrome);
+
+        	// Set up readiness check for preloaded view
+        	if(this.preload_ready_state_check_interval){
+        		clearInterval(this.preload_ready_state_check_interval);
+        	}
+
+        	this.preload_ready_state_check_interval = setInterval(function() {
+        		try {
+        			if(!this.slideshow_preload_window || !this.slideshow_is_running){
+        				clearInterval(this.preload_ready_state_check_interval);
+        				return;
+        			}
+
+        			// Check if preloaded view is ready
+        			if((this.slideshow_preload_window.document.readyState === 'loaded'
+        				|| this.slideshow_preload_window.document.readyState === 'interactive'
+        				|| this.slideshow_preload_window.document.readyState === 'complete')
+        				&& this.slideshow_preload_window.document.body !== null
+        				&& this.slideshow_preload_window.document.body.innerHTML.length > 0
+        				&& !$(this.slideshow_preload_window.document.body).hasClass("slideshow-preloaded")){
+
+        				// Mark as preloaded
+        				$(this.slideshow_preload_window.document.body).addClass("slideshow-preloaded");
+
+        				// Load CSS and styles
+        				this.addStylesheet("../../static/app/slideshow/contrib/nprogress/nprogress.css", this.slideshow_preload_window.document);
+
+        				if(this.slideshow_hide_chrome){
+        					this.addStylesheet("../../static/app/slideshow/css/HideChrome.css", this.slideshow_preload_window.document);
+        				}
+
+        				if(this.slideshow_invert_colors){
+        					this.invertDocumentColors(this.slideshow_preload_window);
+        				}
+
+        				console.info("Next view preloaded and ready");
+        				clearInterval(this.preload_ready_state_check_interval);
+        			}
+        		}
+        		catch (DOMException){
+        			// Cross-origin issue, stop checking
+        			clearInterval(this.preload_ready_state_check_interval);
+        		}
+        	}.bind(this), 200);
+        },
+
+        /**
+         * Instantly switch to the preloaded frame
+         */
+        switchToPreloadedFrame: function(){
+        	var current_frame_id = this.slideshow_current_frame;
+        	var next_frame_id = (current_frame_id === 'showframe1') ? 'showframe2' : 'showframe1';
+
+        	console.info("Switching from " + current_frame_id + " to " + next_frame_id);
+
+        	// Instant swap with quick fade
+        	$('#' + next_frame_id).css("z-index", "10").css("opacity", "1");
+        	$('#' + current_frame_id).css("z-index", "5").css("opacity", "0");
+
+        	// Update current frame reference
+        	this.slideshow_current_frame = next_frame_id;
+
+        	// Update window references
+        	var new_frame = document.getElementById(next_frame_id);
+        	this.slideshow_window = new_frame.contentWindow;
+
+        	// Wire up controls for new frame
+        	this.wireUpSlideFrameControls();
+
+        	// Set up progress bar for new frame
+        	if(!(this.isInternetExplorer() || this.slideshow_hide_progressbar)){
+        		NProgress.configure({
+        			showSpinner: false,
+        			document: this.slideshow_window.document
+        		});
+        		this.slideshow_progress_bar_created = true;
+        	}
+        },
+
         /**
          * Go to the next view in the list.
          */
@@ -1204,26 +1367,26 @@ define([
          * Change to a view.
          */
         changeView: function(forward){
-        	
+
         	// Provide a default argument for forward
         	if(typeof forward === 'undefined'){
         			forward = true;
         	}
-        	
+
         	// Get the view that we are showing
         	var view = null;
-        	
+
         	// If the view offset is undefined start at the beginning
         	if( this.slideshow_view_offset === null ){
         		this.slideshow_view_offset = 0;
         	}
         	else if(forward){
-        		this.slideshow_view_offset++; 
+        		this.slideshow_view_offset++;
         	}
         	else if(!forward){
-        		this.slideshow_view_offset--; 
+        		this.slideshow_view_offset--;
         	}
-        	
+
         	// If the we went off of the end, then wrap around
         	if( this.slideshow_view_offset >= this.slideshow_views.length ){
         		this.slideshow_view_offset = 0;
@@ -1234,7 +1397,7 @@ define([
 
         	// Get the view
         	view = this.slideshow_views[this.slideshow_view_offset];
-        	
+
         	if(view.hasOwnProperty("name")){
         		console.info("Changing to view: " + view.name);
         	}
@@ -1244,53 +1407,56 @@ define([
         	else{
         		console.warn("View lacks a name and a url attribute");
         	}
-        	
+
         	// Clear the existing interval
         	if(this.ready_state_check_interval){
         		clearInterval(this.ready_state_check_interval);
         		this.ready_state_check_interval = null;
         	}
-        	
-        	// Make the window if necessary
+
+        	// Make the window if necessary (first time only)
         	if( !this.slideshow_window ){
-        		
+
         		// Make the window ...
         		if(!this.use_iframe){
         			this.slideshow_window = window.open(this.makeViewURL(view, this.slideshow_hide_chrome), "_blank");
         		}
-        		
+
         		// ... or make the iframe
         		else{
-        			
+
         			// Make the frame window
         			this.showSlideshowFrame();
-        			
-        			// Show the loading frame
+
+        			// Show the loading frame briefly
         			this.showLoadingFrame();
-        			
-        			// Go to the first view
+
+        			// Go to the first view in showframe1
+        			var showframe = document.getElementById('showframe1');
+        			this.slideshow_window = showframe.contentWindow;
         			this.slideshow_window.location = this.makeViewURL(view, this.slideshow_hide_chrome);
+        			this.slideshow_current_frame = 'showframe1';
         		}
-        		
+
         		// Stop if the window could not be opened
         		if(!this.slideshow_window && this.slideshow_is_running){
         			console.warn("Slideshow popup window was not defined; this is likely due to a popup blocker");
         			this.showPopupWasBlockedDialog();
         			this.stopShow();
         		}
-        		
+
         		// Detect if the window opened successfully
         		else{
-	        		
+
         			setTimeout(function () {
-        				
+
         				try{
-        				
+
 	        				// Stop if the window was closed
 	        				if(!this.isSlideshowWindowDefined()){
 	        					return;
 	        				}
-	        				
+
 		        		    if(this.slideshow_window.innerHeight <= 0){
 		        		    	console.warn("Slideshow popup window has an inner height of zero; this is likely due to a popup blocker");
 		        		    	this.showPopupWasBlockedDialog();
@@ -1299,33 +1465,27 @@ define([
 		        		    else{
 		        		    	console.info("Popup window was created successfully (was not popup blocked)");
 		        		    }
-	        		    
+
         				} catch (DOMException){
-        					
+
         				}
 	        		}.bind(this), 3000);
-        			
+
         		}
         	}
-        	
-        	// Otherwise, change the window
+
+        	// Otherwise, switch to preloaded frame (instant!)
         	else{
-        		
+
         		// Stop if the window was closed
         		if(!this.isSlideshowWindowDefined()){
         			console.info("Window was closed, show will stop");
         			this.stopShow();
         			return;
         		}
-        		
-        		// Change to the new view
-        		this.slideshow_window.location = this.makeViewURL(view, this.slideshow_hide_chrome);
-        		
-    			// Show the loading frame
-    			this.showLoadingFrame();
-    			
-    			// Wire up the handlers to show/hide the overlap controls
-    			this.wireUpSlideFrameControls();
+
+        		// INSTANT SWITCH - no loading screen needed!
+        		this.switchToPreloadedFrame();
         	}
         	
         	// Load the stylesheets and progress indicator as necessary when the page gets ready enough
@@ -1373,22 +1533,29 @@ define([
 	        	    		this.invertDocumentColors(this.slideshow_window);
 	        	    		console.info("Inverted the colors successfully");
 	        	    	}
-	        	    	
-	        	    	// Hide the loading frame
+
+
+	        	    	// Hide the loading frame immediately - no delay needed!
 	        	    	setTimeout(function(){
 	        	    		console.info("Hiding the loading frame");
 	        	    		this.hideLoadingFrame();
 	        	    		this.slideshow_view_ready = this.getNowTime();
-	        	    	}.bind(this), 2000);
-	        	       
+
+	        	    		// START PRELOADING THE NEXT SLIDE IMMEDIATELY
+	        	    		this.preloadNextView(true);
+	        	    	}.bind(this), 200);
+
 	        	    }
         		}
         		catch (DOMException){
         			clearInterval(this.ready_state_check_interval);
-        			
+
     	    		console.info("Hiding the loading frame");
     	    		this.hideLoadingFrame();
     	    		this.slideshow_view_ready = this.getNowTime();
+
+    	    		// Preload next even on error
+    	    		this.preloadNextView(true);
         		}
         		
         	}.bind(this), 200);
