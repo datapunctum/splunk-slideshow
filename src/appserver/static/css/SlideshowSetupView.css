@@ -84,7 +84,8 @@ input[type="checkbox"]{
 }
 */
 
-#showframe, #loadingframe, #overlayframe{
+/* Legacy single-iframe and dual-iframe support */
+#showframe, #showframe1, #showframe2, .slideshow-frame, #loadingframe, #overlayframe{
 	width: 100%;
 	border: 0px;
 	position: fixed;
@@ -92,9 +93,17 @@ input[type="checkbox"]{
 	left: 0px;
 }
 
+/* Dual iframe system for instant transitions */
+#showframe1, #showframe2, .slideshow-frame{
+	transition: opacity 0.15s ease-in-out;
+	background-color: white;
+}
+
 #loadingframe{
 	height:1024px;
 	z-index: 100;
+	transition: opacity 0.3s ease-in-out;
+	opacity: 1;
 }
 
 #overlayframe{
@@ -116,7 +125,7 @@ input[type="checkbox"]{
   	left: 50%;
   	margin-left: -125px;
   	margin-top: 20px;
-  	z-index: 101;
+  	z-index: 102;
   	padding: 18px;
   	display: none;
 }
@@ -159,7 +168,9 @@ input[name=delay]{
 	margin-top: 10px;
 }
 
-/* Make sure that the show frame has a background color. Otherwise, a page that doesn't declare will allow the underlying view to show through. */
+/* Legacy showframe support maintained for backwards compatibility */
 #showframe{
     background-color: white;
+    transition: opacity 0.15s ease-in-out;
+    opacity: 1;
 }
